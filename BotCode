@@ -1,0 +1,137 @@
+import discord
+import asyncio
+import os
+from datetime import datetime
+
+# Configuration
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
+CHANNEL_IDS_STR = os.getenv('CHANNEL_IDS', '')
+CHANNEL_IDS = [int(cid.strip()) for cid in CHANNEL_IDS_STR.split(',') if cid.strip()]
+MESSAGE_CONTENT = os.getenv('MESSAGE_CONTENT', 'Hello! This is an automated message.')
+AUTO_REPLY_MESSAGE = "** ADD Br_oz On discord  TO TRADE **"
+INTERVAL_SECONDS = 300  # 5 minutes
+
+class MessageBot:
+    def __init__(self, token, channel_ids, message, interval):
+        self.token = token
+        self.channel_ids = channel_ids
+        self.message = message
+        self.interval = interval
+        self.replied_users = set()  # Track users we've already replied to
+        self.client = discord.Client()
+        self.setup_events()
+    
+    def setup_events(self):
+        @self.client.event
+        async def on_ready():
+            print(f'🤖 Logged in as {self.client.user}')
+            print(f'📺 Target channel IDs: {self.channel_ids}')
+            print(f'💬 Message: "{self.message}"')
+            print(f'⏰ Interval: {self.interval} seconds')
+            print('🚀 Starting automated messaging...')
+            print('📨 DM auto-reply is active!')
+            
+            # Start the message loop
+            await self.start_message_loop()
+        
+        @self.client.event
+        async def on_message(message):
+            # Don't respond to our own messages
+            if message.author == self.client.user:
+                return
+            
+            # Check if it's a DM (direct message)
+            if isinstance(message.channel, discord.DMChannel):
+                user_id = message.author.id
+                
+                # Only reply once per user to avoid spam
+                if user_id not in self.replied_users:
+                    try:
+                        await message.channel.send(AUTO_REPLY_MESSAGE)
+                        self.replied_users.add(user_id)
+                        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        print(f'📨 [{timestamp}] Auto-replied to DM from {message.author.name}')
+                    except discord.errors.Forbidden:
+                        print(f'❌ Cannot send DM to {message.author.name} - they may have DMs disabled')
+                    except Exception as e:
+                        print(f'❌ Error sending auto-reply: {e}')
+    
+    async def start_message_loop(self):
+        while True:
+            try:
+                sent_count = 0
+                failed_count = 0
+                
+                # Send message to all channels
+                for channel_id in self.channel_ids:
+                    try:
+                        channel = self.client.get_channel(channel_id)
+                        
+                        if channel is None:
+                            print(f'❌ Error: Could not find channel with ID {channel_id}')
+                            failed_count += 1
+                            continue
+                        
+                        # Send the message
+                        await channel.send(self.message)
+                        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        channel_name = getattr(channel, 'name', f'Channel-{channel.id}')
+                        print(f'✅ [{timestamp}] Message sent to #{channel_name}')
+                        sent_count += 1
+                        
+                        # Small delay between channels to avoid rate limits
+                        await asyncio.sleep(2)
+                        
+                    except discord.errors.Forbidden:
+                        print(f'❌ Error: No permission to send messages to channel {channel_id}')
+                        failed_count += 1
+                        
+                    except discord.errors.HTTPException as e:
+                        print(f'❌ HTTP Error for channel {channel_id}: {e}')
+                        failed_count += 1
+                        
+                    except Exception as e:
+                        print(f'❌ Unexpected error for channel {channel_id}: {e}')
+                        failed_count += 1
+                
+                # Summary
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                print(f'📊 [{timestamp}] Round complete: {sent_count} sent, {failed_count} failed')
+                
+            except Exception as e:
+                print(f'❌ Critical error in message loop: {e}')
+            
+            # Wait for the next interval
+            print(f'⏳ Waiting {self.interval} seconds until next round...')
+            await asyncio.sleep(self.interval)
+    
+    async def run(self):
+        try:
+            await self.client.start(self.token)
+        except discord.errors.LoginFailure:
+            print('❌ Error: Invalid Discord token')
+            print('Please check your DISCORD_TOKEN environment variable.')
+        except Exception as e:
+            print(f'❌ Failed to start bot: {e}')
+
+async def main():
+    if not DISCORD_TOKEN:
+        print('❌ Error: DISCORD_TOKEN environment variable is not set')
+        print('Please provide your Discord token.')
+        return
+    
+    if not CHANNEL_IDS:
+        print('❌ Error: CHANNEL_IDS environment variable is not set')
+        print('Please provide comma-separated channel IDs.')
+        return
+    
+    bot = MessageBot(DISCORD_TOKEN, CHANNEL_IDS, MESSAGE_CONTENT, INTERVAL_SECONDS)
+    await bot.run()
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print('\n🛑 Bot stopped by user')
+    except Exception as e:
+        print(f'❌ Fatal error: {e}')
